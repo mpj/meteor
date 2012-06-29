@@ -14,10 +14,14 @@ Meteor.AccessDeniedError = function() {
 Meteor.Collection.prototype.allow = function(options) {
   var self = this;
 
-  self._disableDefaultMutators = true;
+  self._restricted = true;
 
   if (options.insert) {
     self._validators.insert.push(options.insert);
+  }
+
+  if (options.update) {
+    self._validators.update.push(options.update);
   }
 
   // xcxc do update, remove!!!
