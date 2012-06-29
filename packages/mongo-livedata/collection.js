@@ -1,6 +1,8 @@
 // manager, if given, is a LivedataClient or LivedataServer
 // XXX presently there is no way to destroy/clean up a Collection
 
+Meteor._collections = [];
+
 // XXX probably a good idea to change these arguments to be an options map
 Meteor.Collection = function (name, manager, driver, preventAutopublish) {
   var self = this;
@@ -28,6 +30,7 @@ Meteor.Collection = function (name, manager, driver, preventAutopublish) {
   self._driver = driver;
   self._collection = driver.open(name);
   self._was_snapshot = false;
+  self._name = name;
 
   if (name && manager.registerStore) {
     // OK, we're going to be a slave, replicating some remote
@@ -87,31 +90,18 @@ Meteor.Collection = function (name, manager, driver, preventAutopublish) {
       throw new Error("There is already a collection named '" + name + "'");
   }
 
-  // mutation methods
-  if (manager) {
-    var m = {};
-    // XXX what if name has illegal characters in it?
-    self._prefix = '/' + name + '/';
-    m[self._prefix + 'insert'] = function (/* selector, options */) {
-      self._maybe_snapshot();
-      // insert returns nothing.  allow exceptions to propagate.
-      self._collection.insert.apply(self._collection, _.toArray(arguments));
-    };
+  // xcxc should this actually be here? it's read from the prototype
+  // insert, remove, update methods
 
-    m[self._prefix + 'update'] = function (/* selector, mutator, options */) {
-      self._maybe_snapshot();
-      // update returns nothing.  allow exceptions to propagate.
-      self._collection.update.apply(self._collection, _.toArray(arguments));
-    };
+  // XXX what if name has illegal characters in it?
+  self._prefix = '/' + name + '/';
 
-    m[self._prefix + 'remove'] = function (/* selector */) {
-      self._maybe_snapshot();
-      // remove returns nothing.  allow exceptions to propagate.
-      self._collection.remove.apply(self._collection, _.toArray(arguments));
-    };
-
-    manager.methods(m);
-  }
+  // xcxc where should this go?
+  self._validators = {
+    insert: [],
+    update: [],
+    remove: []
+  };
 
   // autopublish
   if (!preventAutopublish && manager && manager.onAutopublish)
@@ -119,6 +109,9 @@ Meteor.Collection = function (name, manager, driver, preventAutopublish) {
       var handler = function () { return self.find(); };
       manager.publish(null, handler, {is_auto: true});
     });
+
+  // Store in global list of collections
+  Meteor._collections.push(self);
 };
 
 _.extend(Meteor.Collection.prototype, {
@@ -179,7 +172,7 @@ _.each(["insert", "update", "remove"], function (name) {
     if (args.length && args[args.length - 1] instanceof Function)
       callback = args.pop();
 
-    if (Meteor.is_client && !callback)
+    if (Meteor.is_client && !callback) {
       // Client can't block, so it can't report errors by exception,
       // only by callback. If they forget the callback, give them a
       // default one that logs the error, so they aren't totally
@@ -189,6 +182,7 @@ _.each(["insert", "update", "remove"], function (name) {
         if (err)
           Meteor._debug(name + " failed: " + err.error + " -- " + err.reason);
       };
+    }
 
     if (name === "insert") {
       if (!args.length)
