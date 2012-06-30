@@ -90,14 +90,7 @@ Meteor.Collection = function (name, manager, driver, preventAutopublish) {
       throw new Error("There is already a collection named '" + name + "'");
   }
 
-  // xcxc should this actually be here? it's read from the prototype
-  // insert, remove, update methods
-
-  // XXX what if name has illegal characters in it?
-  self._prefix = '/' + name + '/';
-
-  self._methods = {
-  };
+  self._setupMutationMethods();
 
   // xcxc where should this go?
   self._validators = {
@@ -140,6 +133,78 @@ _.extend(Meteor.Collection.prototype, {
   }
 
 });
+
+Meteor.Collection.prototype._setupMutationMethods = function() {
+  // xcxc higher-level question: do validators run simulated on the client as well?
+
+  // XXX what if name has illegal characters in it?
+  self._prefix = '/' + name + '/';
+
+  // mutation methods
+  if (self._manager) {
+    var m = {};
+    // XXX what if name has illegal characters in it?
+    self._prefix = '/' + name + '/';
+    m[self._prefix + 'insert'] = function (doc) {
+      if (!self._allowInsert(doc))
+        throw new Meteor.Error("Access denied"); // xcxc replace with class
+
+      self._maybe_snapshot();
+      // insert returns nothing.  allow exceptions to propagate.
+      self._collection.insert(doc);
+    };
+
+    m[self._prefix + 'update'] = function (selector, mutator, options) {
+      if (self._restricted()) {
+        self._maybe_snapshot();
+
+        // xcxc in validatedUpdate explain why we need to transform the
+        // mutator
+        self._validatedUpdate(selector, mutator, options);
+      } else {
+        if (Meteor.insecure) {
+          self._maybe_snapshot();
+          // insert returns nothing.  allow exceptions to propagate.
+          self._collection.update(selector, mutator, options);
+        } else {
+          throw new Meteor.Error("Access denied");
+        }
+      }
+    };
+
+    m[self._prefix + 'remove'] = function (selector) {
+      if (self._restricted()) {
+        self._maybe_snapshot();
+
+        // xcxc in validatedUpdate explain why we need to transform the
+        // mutator
+        self._validatedRemove(selector);
+      } else {
+        if (Meteor.insecure) {
+          self._maybe_snapshot();
+          // insert returns nothing.  allow exceptions to propagate.
+          self._collection.remove(selector);
+        } else {
+          throw new Meteor.Error("Access denied");
+        }
+      }
+    };
+
+    self._manager.methods(m);
+  }
+};
+
+Meteor.Collection.prototype._allowInsert = function(doc) {
+  // xcxc;
+};
+
+Meteor.Collection.prototype._validatedUpdate = function(selector, mutator, options) {
+  // xcxc
+};
+
+Meteor.Collection.prototype._validatedRemove = function(selector) {
+  // xcxc
+};
 
 // 'insert' immediately returns the inserted document's new _id.  The
 // others return nothing.

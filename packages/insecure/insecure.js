@@ -16,8 +16,6 @@ Meteor.startup(function() {
         };
 
         collection._maybe_snapshot();
-        // insert returns nothing.  allow exceptions to propagate.
-        collection._collection.insert.apply(collection._collection, _.toArray(arguments));
       };
 
 
