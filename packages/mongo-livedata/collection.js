@@ -96,6 +96,9 @@ Meteor.Collection = function (name, manager, driver, preventAutopublish) {
   // XXX what if name has illegal characters in it?
   self._prefix = '/' + name + '/';
 
+  self._methods = {
+  };
+
   // xcxc where should this go?
   self._validators = {
     insert: [],

@@ -15,10 +15,6 @@ Meteor.startup(function() {
           throw new Meteor.Error("Access Denied"); // xcxc use Meteor.AccessDeniedError?
         };
 
-        // xcxc why do we need this _maybe_snapshot here? we don't seem
-        // to do that for other methods...?  oh, maybe since other
-        // methods all go through these insert/update/remove ones?
-
         collection._maybe_snapshot();
         // insert returns nothing.  allow exceptions to propagate.
         collection._collection.insert.apply(collection._collection, _.toArray(arguments));
