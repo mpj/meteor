@@ -153,7 +153,8 @@ Meteor.Collection.prototype._defineMutationMethods = function() {
     var m = {};
     // XXX what if name has illegal characters in it?
     m[self._prefix + 'insert'] = function (doc) {
-      if (self._resticted) {
+      console.log('xcxc 1');
+      if (self._restricted) {
         if (!self._allowInsert(this.userId(), doc))
           throw new Meteor.Error("Access denied"); // xcxc exception class
       } else {
@@ -206,8 +207,20 @@ Meteor.Collection.prototype._defineMutationMethods = function() {
   }
 };
 
+Meteor.Collection.prototype.allow = function(options) {
+  var self = this;
+  self._restricted = true;
+
+  if (options.insert) {
+    console.log('xcxc added insert');
+    self._validators.insert.push(options.insert);
+  }
+};
+
 // assuming the collection is restricted
 Meteor.Collection.prototype._allowInsert = function(userId, doc) {
+  console.log('xcxc _allowInsert');
+
   // all validators should return true
   return !_.any(this._validators.insert, function(validator) {
     return !validator(userId, doc);
