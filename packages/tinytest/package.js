@@ -7,6 +7,7 @@ Package.on_use(function (api) {
   api.use('underscore', ['client', 'server']);
 
   api.add_files('tinytest.js', ['client', 'server']);
+  api.use('insecure'); // xcxc uhh, i guess this is ok?
 
   api.use('mongo-livedata', ['client', 'server']);
   api.add_files('model.js', ['client', 'server']);

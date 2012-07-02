@@ -90,7 +90,7 @@ Meteor.Collection = function (name, manager, driver, preventAutopublish) {
       throw new Error("There is already a collection named '" + name + "'");
   }
 
-  self._setupMutationMethods();
+  self._defineMutationMethods();
 
   // xcxc where should this go?
   self._validators = {
@@ -134,20 +134,32 @@ _.extend(Meteor.Collection.prototype, {
 
 });
 
-Meteor.Collection.prototype._setupMutationMethods = function() {
+Meteor.Collection.prototype._defineMutationMethods = function() {
+  var self = this;
   // xcxc higher-level question: do validators run simulated on the client as well?
 
+  if (!self._name)
+    return; // anonymous collection
+  
   // XXX what if name has illegal characters in it?
-  self._prefix = '/' + name + '/';
+  self._prefix = '/' + self._name + '/';
+
+  // we need to define this var here so that tests can turn insecure
+  // on and off between collection definitions
+  var insecure = Meteor.insecure;
 
   // mutation methods
   if (self._manager) {
     var m = {};
     // XXX what if name has illegal characters in it?
-    self._prefix = '/' + name + '/';
     m[self._prefix + 'insert'] = function (doc) {
-      if (!self._allowInsert(doc))
-        throw new Meteor.Error("Access denied"); // xcxc replace with class
+      if (self._resticted) {
+        if (!self._allowInsert(this.userId(), doc))
+          throw new Meteor.Error("Access denied"); // xcxc exception class
+      } else {
+        if (!insecure)
+          throw new Meteor.Error("Access denied");
+      }
 
       self._maybe_snapshot();
       // insert returns nothing.  allow exceptions to propagate.
@@ -155,14 +167,14 @@ Meteor.Collection.prototype._setupMutationMethods = function() {
     };
 
     m[self._prefix + 'update'] = function (selector, mutator, options) {
-      if (self._restricted()) {
+      if (self._restricted) {
         self._maybe_snapshot();
 
         // xcxc in validatedUpdate explain why we need to transform the
         // mutator
-        self._validatedUpdate(selector, mutator, options);
+        self._validatedUpdate(this.userId(), selector, mutator, options);
       } else {
-        if (Meteor.insecure) {
+        if (insecure) {
           self._maybe_snapshot();
           // insert returns nothing.  allow exceptions to propagate.
           self._collection.update(selector, mutator, options);
@@ -173,14 +185,14 @@ Meteor.Collection.prototype._setupMutationMethods = function() {
     };
 
     m[self._prefix + 'remove'] = function (selector) {
-      if (self._restricted()) {
+      if (self._restricted) {
         self._maybe_snapshot();
 
         // xcxc in validatedUpdate explain why we need to transform the
         // mutator
-        self._validatedRemove(selector);
+        self._validatedRemove(this.userId(), selector);
       } else {
-        if (Meteor.insecure) {
+        if (insecure) {
           self._maybe_snapshot();
           // insert returns nothing.  allow exceptions to propagate.
           self._collection.remove(selector);
@@ -194,15 +206,56 @@ Meteor.Collection.prototype._setupMutationMethods = function() {
   }
 };
 
-Meteor.Collection.prototype._allowInsert = function(doc) {
-  // xcxc;
+// assuming the collection is restricted
+Meteor.Collection.prototype._allowInsert = function(userId, doc) {
+  // all validators should return true
+  return !_.any(this._validators.insert, function(validator) {
+    return !validator(userId, doc);
+  });
 };
 
-Meteor.Collection.prototype._validatedUpdate = function(selector, mutator, options) {
-  // xcxc
+Meteor.Collection.prototype._validatedUpdate = function(userId, selector, mutator, options) {
+  var self = this;
+
+  if (!self._restricted) {
+    // update returns nothing.  allow exceptions to propagate.
+    collection._collection.update.apply(collection._collection, _.toArray(arguments));
+  } else {
+    if (collection._validators.update.length === 0) {
+      throw new Meteor.Error("Collection restricted but no update validators set");
+    }
+
+    // xcxc disallow non-$set arguments (which will be necessary when computing fields)
+
+    // xcxc fields not documented in docs.meteor.com?
+    var objects = collection._collection.find(selector/*, {fields: {_id: 1}} xcxc optimize not loading all fields*/).fetch();
+
+    var disallow = _.any(collection._validators.update, function(validator) {
+      return !validator(methodInvocation.userId(), objects /* xcxc, fields, modifier */);
+    });
+
+    if (disallow)
+      throw new Meteor.Error("Access Denied"); // xcxc use class
+
+    var idInClause = {};
+    idInClause.$in = _.map(objects, function(object) {
+      return object._id;
+    });
+
+    var idSelector = {_id: idInClause};
+
+    // xcxc do something with options!
+
+    collection._collection.update.call(
+      collection._collection,
+      idSelector,
+      mutator,
+      options);
+  }
+
 };
 
-Meteor.Collection.prototype._validatedRemove = function(selector) {
+Meteor.Collection.prototype._validatedRemove = function(userId, selector) {
   // xcxc
 };
 
@@ -265,16 +318,18 @@ _.each(["insert", "update", "remove"], function (name) {
     if (self._manager && self._manager !== Meteor.default_server) {
       // just remote to another endpoint, propagate return value or
       // exception.
-      if (callback)
+      if (callback) {
         // asynchronous: on success, callback should return ret
         // (document ID for insert, undefined for update and
         // remove), not the method's result.
+        console.log('xcxc about to shoot it');
         self._manager.apply(self._prefix + name, args, function (error, result) {
           callback(error, !error && ret);
         });
-      else
+      } else {
         // synchronous: propagate exception
         self._manager.apply(self._prefix + name, args);
+      }
 
     } else {
       // it's my collection.  descend into the collection object
@@ -282,6 +337,7 @@ _.each(["insert", "update", "remove"], function (name) {
       try {
         self._collection[name].apply(self._collection, args);
       } catch (e) {
+        console.log('xcxc exception', JSON.stringify(e));
         if (callback) {
           callback(e);
           return null;
