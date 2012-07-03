@@ -1,8 +1,8 @@
-// xcxc add remove to all collections
 // xcxc add a test that calling allowed with only some modifiers restricts the collection
 // xcxc add a test verifying that not all fields are loaded
 // xcxc add a test that multiple calls to allow add onto each other as "AND" rather than "OR"
 // xcxc test for "no insert validators set" etc
+// xcxc add a test for options, such as multi or not
 
 (function () {
   var defineCollection = function(name, insecure) {
@@ -47,13 +47,18 @@
     "collection-securedDefaultInsecure", true /*insecure*/);
   var allow = {
     insert: function(userId, doc) {
-      return doc.canModify;
+      return doc.canInsert;
     },
     update: function(userId, objects, fields, modifier) { // xcxc "modifier" - standardize call sites
       return (-1 === _.indexOf(fields, 'verySecret')) &&
         _.all(objects, function (object) {
           return object.canUpdate;
         });
+    },
+    remove: function(userId, objects) {
+      return _.all(objects, function (object) {
+        return object.canRemove;
+      });
     }
   };
   securedCollectionDefaultSecure.allow(allow);
@@ -100,9 +105,7 @@
         _.each(
           [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
           function(collection) {
-            console.log(1);
-            collection.insert({canModify: false}, expect(function (err, res) {
-              console.log(2);
+            collection.insert({canInsert: false}, expect(function (err, res) {
               test.equal(err.error, "Access denied");
               test.equal(collection.find().count(), 0);
             }));
@@ -112,12 +115,10 @@
         _.each(
           [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
           function(collection) {
-            console.log(3);
-            collection.insert({canModify: true}, expect(function (err, res) {
-              console.log(4);
+            collection.insert({canInsert: true}, expect(function (err, res) {
               test.isFalse(err);
               test.equal(collection.find().count(), 1);
-              test.equal(collection.findOne().canModify, true);
+              test.equal(collection.findOne().canInsert, true);
             }));
           });
       },
@@ -125,24 +126,54 @@
         _.each(
           [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
           function(collection) {
-            collection.update({canModify: false}, {$set: {updated: true}}, expect(function (err, res) {
+            collection.insert({canInsert: true, canUpdate: true}, expect(function (err, res) {
+              test.isFalse(err);
+              test.equal(collection.find().count(), 2);
+              test.equal(collection.find().fetch()[1].canInsert, true);
+              test.equal(collection.find().fetch()[1].canUpdate, true);
+            }));
+          });
+      },
+      function (test, expect) {
+        _.each(
+          [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
+          function(collection) {
+            collection.insert({canInsert: true, canRemove: true}, expect(function (err, res) {
+              test.isFalse(err);
+              test.equal(collection.find().count(), 3);
+              test.equal(collection.find().fetch()[1].canInsert, true);
+              test.equal(collection.find().fetch()[1].canUpdate, true);
+              test.equal(collection.find().fetch()[2].canInsert, true);
+              test.equal(collection.find().fetch()[2].canRemove, true);
+            }));
+          });
+      },
+      // update
+      function (test, expect) {
+        _.each(
+          [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
+          function(collection) {
+            collection.update({canInsert: false}, {$set: {updated: true}}, expect(function (err, res) {
               test.isFalse(err);
               // nothing has changed
-              test.equal(collection.find().count(), 1);
-              test.equal(collection.findOne().updated, undefined);
+              test.equal(collection.find().count(), 3);
+              test.equal(collection.find().fetch()[1].canInsert, true);
+              test.equal(collection.find().fetch()[1].canUpdate, true);
+              test.equal(collection.find().fetch()[1].updated, undefined);
             }));
           });
       },
-      // xcxc rethink canInsert/canUpdate
       function (test, expect) {
         _.each(
           [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
           function(collection) {
-            collection.update({canModify: true}, {$set: {verySecret: true}}, expect(function (err, res) {
+            collection.update({canInsert: true}, {$set: {verySecret: true}}, expect(function (err, res) {
               test.equal(err.error, "Access denied");
               // nothing has changed
-              test.equal(collection.find().count(), 1);
-              test.equal(collection.findOne().updated, undefined);
+              test.equal(collection.find().count(), 3);
+              test.equal(collection.find().fetch()[1].canInsert, true);
+              test.equal(collection.find().fetch()[1].canUpdate, true);
+              test.equal(collection.find().fetch()[1].updated, undefined);
             }));
           });
       },
@@ -150,11 +181,13 @@
         _.each(
           [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
           function(collection) {
-            collection.update({canModify: true}, {$set: {updated: true, verySecret: true}}, expect(function (err, res) {
+            collection.update({canInsert: true}, {$set: {updated: true, verySecret: true}}, expect(function (err, res) {
               test.equal(err.error, "Access denied");
               // nothing has changed
-              test.equal(collection.find().count(), 1);
-              test.equal(collection.findOne().updated, undefined);
+              test.equal(collection.find().count(), 3);
+              test.equal(collection.find().fetch()[1].canInsert, true);
+              test.equal(collection.find().fetch()[1].canUpdate, true);
+              test.equal(collection.find().fetch()[1].updated, undefined);
             }));
           });
       },
@@ -162,13 +195,61 @@
         _.each(
           [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
           function(collection) {
-            collection.update({canModify: true}, {$set: {updated: true}}, expect(function (err, res) {
+            collection.update({canInsert: true}, {$set: {updated: true}}, expect(function (err, res) {
+              test.equal(err.error, "Access denied");
+              // nothing has changed
+              test.equal(collection.find().count(), 3);
+              test.equal(collection.find().fetch()[1].canInsert, true);
+              test.equal(collection.find().fetch()[1].canUpdate, true);
+              test.equal(collection.find().fetch()[1].updated, undefined);
+            }));
+          });
+      },
+      function (test, expect) {
+        _.each(
+          [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
+          function(collection) {
+            collection.update({canUpdate: true}, {$set: {updated: true}}, expect(function (err, res) {
               test.isFalse(err);
-              test.equal(collection.find().count(), 1);
-              test.equal(collection.findOne().updated, true);
+              test.equal(collection.find().fetch()[1].updated, true);
+            }));
+          });
+      },
+      // remove
+      function (test, expect) {
+        _.each(
+          [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
+          function(collection) {
+            collection.remove({canInsert: true}, expect(function (err, res) {
+              test.equal(err.error, "Access denied");
+              // nothing has changed
+              test.equal(collection.find().count(), 3);
+            }));
+          });
+      },
+      function (test, expect) {
+        _.each(
+          [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
+          function(collection) {
+            collection.remove({canUpdate: true}, expect(function (err, res) {
+              test.equal(err.error, "Access denied");
+              // nothing has changed
+              test.equal(collection.find().count(), 3);
+            }));
+          });
+      },
+      function (test, expect) {
+        _.each(
+          [securedCollectionDefaultInsecure, securedCollectionDefaultSecure],
+          function(collection) {
+            collection.remove({canRemove: true}, expect(function (err, res) {
+              test.isFalse(err);
+              // successfully removed
+              test.equal(collection.find().count(), 2);
             }));
           });
       }
+
     ]);
   }
 }) ();

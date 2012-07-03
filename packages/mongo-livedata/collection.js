@@ -241,7 +241,6 @@ Meteor.Collection.prototype._validatedUpdate = function(userId, selector, mutato
 
   // xcxc fields not documented in docs.meteor.com?
   var objects = self._collection.find(selector/*, {fields: {_id: 1}} xcxc optimize not loading all fields*/).fetch();
-  
   var fields = _.keys(mutator.$set); // xcxc and others?
 
   if (_.any(self._validators.update, function(validator) {
@@ -268,7 +267,28 @@ Meteor.Collection.prototype._validatedUpdate = function(userId, selector, mutato
 };
 
 Meteor.Collection.prototype._validatedRemove = function(userId, selector) {
-  // xcxc
+  var self = this;
+
+  if (self._validators.remove.length === 0) {
+    throw new Meteor.Error("No remove validators set on restricted collection");
+  }
+
+  var objects = self._collection.find(selector/*, {fields: {_id: 1}} xcxc optimize not loading all fields*/).fetch();
+
+  if (_.any(self._validators.remove, function(validator) {
+    return !validator(userId, objects);
+  })) {
+    throw new Meteor.Error("Access denied"); // xcxc use class
+  }
+
+  var idInClause = {};
+  idInClause.$in = _.map(objects, function(object) {
+    return object._id;
+  });
+
+  var idSelector = {_id: idInClause};
+
+  self._collection.remove.call(self._collection, idSelector);
 };
 
 // 'insert' immediately returns the inserted document's new _id.  The
