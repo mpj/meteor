@@ -153,7 +153,6 @@ Meteor.Collection.prototype._defineMutationMethods = function() {
     var m = {};
     // XXX what if name has illegal characters in it?
     m[self._prefix + 'insert'] = function (doc) {
-      console.log('xcxc 1');
       if (self._restricted) {
         if (!self._allowInsert(this.userId(), doc))
           throw new Meteor.Error("Access denied"); // xcxc exception class
@@ -211,15 +210,19 @@ Meteor.Collection.prototype.allow = function(options) {
   var self = this;
   self._restricted = true;
 
-  if (options.insert) {
-    console.log('xcxc added insert');
+  if (options.insert)
     self._validators.insert.push(options.insert);
-  }
+  if (options.update)
+    self._validators.update.push(options.update);
+  if (options.remove)
+    self._validators.remove.push(options.remove);
 };
 
 // assuming the collection is restricted
 Meteor.Collection.prototype._allowInsert = function(userId, doc) {
-  console.log('xcxc _allowInsert');
+  if (this._validators.length === 0) {
+    throw new Meteor.Error("No insert validators set on restricted collection"); // xcxc class?
+  }
 
   // all validators should return true
   return !_.any(this._validators.insert, function(validator) {
@@ -230,41 +233,37 @@ Meteor.Collection.prototype._allowInsert = function(userId, doc) {
 Meteor.Collection.prototype._validatedUpdate = function(userId, selector, mutator, options) {
   var self = this;
 
-  if (!self._restricted) {
-    // update returns nothing.  allow exceptions to propagate.
-    collection._collection.update.apply(collection._collection, _.toArray(arguments));
-  } else {
-    if (collection._validators.update.length === 0) {
-      throw new Meteor.Error("Collection restricted but no update validators set");
-    }
-
-    // xcxc disallow non-$set arguments (which will be necessary when computing fields)
-
-    // xcxc fields not documented in docs.meteor.com?
-    var objects = collection._collection.find(selector/*, {fields: {_id: 1}} xcxc optimize not loading all fields*/).fetch();
-
-    var disallow = _.any(collection._validators.update, function(validator) {
-      return !validator(methodInvocation.userId(), objects /* xcxc, fields, modifier */);
-    });
-
-    if (disallow)
-      throw new Meteor.Error("Access Denied"); // xcxc use class
-
-    var idInClause = {};
-    idInClause.$in = _.map(objects, function(object) {
-      return object._id;
-    });
-
-    var idSelector = {_id: idInClause};
-
-    // xcxc do something with options!
-
-    collection._collection.update.call(
-      collection._collection,
-      idSelector,
-      mutator,
-      options);
+  if (self._validators.update.length === 0) {
+    throw new Meteor.Error("No update validators set on restricted collection");
   }
+
+  // xcxc disallow non-$set arguments (which will be necessary when computing fields)
+
+  // xcxc fields not documented in docs.meteor.com?
+  var objects = self._collection.find(selector/*, {fields: {_id: 1}} xcxc optimize not loading all fields*/).fetch();
+  
+  var fields = _.keys(mutator.$set); // xcxc and others?
+
+  if (_.any(self._validators.update, function(validator) {
+    return !validator(userId, objects, fields, mutator);
+  })) {
+    throw new Meteor.Error("Access denied"); // xcxc use class
+  }
+
+  var idInClause = {};
+  idInClause.$in = _.map(objects, function(object) {
+    return object._id;
+  });
+
+  var idSelector = {_id: idInClause};
+
+  // xcxc do something with options!
+
+  self._collection.update.call(
+    self._collection,
+    idSelector,
+    mutator,
+    options);
 
 };
 
@@ -335,7 +334,6 @@ _.each(["insert", "update", "remove"], function (name) {
         // asynchronous: on success, callback should return ret
         // (document ID for insert, undefined for update and
         // remove), not the method's result.
-        console.log('xcxc about to shoot it');
         self._manager.apply(self._prefix + name, args, function (error, result) {
           callback(error, !error && ret);
         });
@@ -350,7 +348,6 @@ _.each(["insert", "update", "remove"], function (name) {
       try {
         self._collection[name].apply(self._collection, args);
       } catch (e) {
-        console.log('xcxc exception', JSON.stringify(e));
         if (callback) {
           callback(e);
           return null;
